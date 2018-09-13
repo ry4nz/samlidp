@@ -2,11 +2,14 @@ package main
 
 import (
 	"crypto"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"net/url"
 	"os"
 
+	"github.com/crewjam/saml"
 	"github.com/crewjam/saml/logger"
 	"github.com/crewjam/saml/samlidp"
 	"github.com/zenazn/goji"
@@ -69,6 +72,150 @@ UzreO96WzlBBMtY=
 	return c
 }()
 
+// RandReader is the io.Reader that produces cryptographically random
+// bytes when they are need by the library. The default value is
+// rand.Reader, but it can be replaced for testing.
+var RandReader = rand.Reader
+
+func randomBytes(n int) []byte {
+	rv := make([]byte, n)
+	if _, err := RandReader.Read(rv); err != nil {
+		panic(err)
+	}
+	return rv
+}
+
+const (
+	// The SAML attribute name that indicates the user's group membership.
+	// The attribute name is configured at the identity provider.
+	groupAttributeName = "member-of"
+	// The SAML attribute name that indicates the user's full name.
+	// The attribute name is configured at the identity provider.
+	fullnameAttributeName = "fullname"
+	// The SAML attribute name that indicates whether the user is an admin.
+	// The attribute name is configured at the identity provider.
+	adminAttributeName = "is-admin"
+
+	attrnameformat = "urn:oasis:names:tc:SAML:2.0:attrname-format:unspecified"
+
+	adminGroupName = "Administrator"
+)
+
+type AssertionMaker struct {
+}
+
+func (AssertionMaker) MakeAssertion(req *saml.IdpAuthnRequest, session *saml.Session) error {
+	attributes := []saml.Attribute{}
+
+	attributes = append(attributes, saml.Attribute{
+		FriendlyName: fullnameAttributeName,
+		Name:         fullnameAttributeName,
+		NameFormat:   attrnameformat,
+		Values: []saml.AttributeValue{{
+			Type:  "xs:string",
+			Value: session.UserCommonName,
+		}},
+	})
+
+	groupValues := []saml.AttributeValue{}
+
+	for _, g := range session.Groups {
+		if g == adminGroupName {
+			attributes = append(attributes, saml.Attribute{
+				FriendlyName: adminAttributeName,
+				Name:         adminAttributeName,
+				NameFormat:   attrnameformat,
+				Values: []saml.AttributeValue{{
+					Type:  "xs:string",
+					Value: "",
+				}},
+			})
+		} else {
+			groupValues = append(groupValues, saml.AttributeValue{
+				Type:  "xs:string",
+				Value: g,
+			})
+		}
+	}
+
+	if len(groupValues) > 0 {
+		attributes = append(attributes, saml.Attribute{
+			FriendlyName: groupAttributeName,
+			Name:         groupAttributeName,
+			NameFormat:   attrnameformat,
+			Values:       groupValues,
+		})
+	}
+
+	// allow for some clock skew in the validity period using the
+	// issuer's apparent clock.
+	notBefore := req.Now.Add(-1 * saml.MaxClockSkew)
+	notOnOrAfterAfter := req.Now.Add(saml.MaxIssueDelay)
+	if notBefore.Before(req.Request.IssueInstant) {
+		notBefore = req.Request.IssueInstant
+		notOnOrAfterAfter = notBefore.Add(saml.MaxIssueDelay)
+	}
+
+	req.Assertion = &saml.Assertion{
+		ID:           fmt.Sprintf("id-%x", randomBytes(20)),
+		IssueInstant: saml.TimeNow(),
+		Version:      "2.0",
+		Issuer: saml.Issuer{
+			Format: "urn:oasis:names:tc:SAML:2.0:nameid-format:entity",
+			Value:  req.IDP.Metadata().EntityID,
+		},
+		Subject: &saml.Subject{
+			NameID: &saml.NameID{
+				Format:          "urn:oasis:names:tc:SAML:2.0:nameid-format:transient",
+				NameQualifier:   req.IDP.Metadata().EntityID,
+				SPNameQualifier: req.ServiceProviderMetadata.EntityID,
+				Value:           session.UserName,
+			},
+			SubjectConfirmations: []saml.SubjectConfirmation{
+				saml.SubjectConfirmation{
+					Method: "urn:oasis:names:tc:SAML:2.0:cm:bearer",
+					SubjectConfirmationData: &saml.SubjectConfirmationData{
+						Address:      req.HTTPRequest.RemoteAddr,
+						InResponseTo: req.Request.ID,
+						NotOnOrAfter: req.Now.Add(saml.MaxIssueDelay),
+						Recipient:    req.ACSEndpoint.Location,
+					},
+				},
+			},
+		},
+		Conditions: &saml.Conditions{
+			NotBefore:    notBefore,
+			NotOnOrAfter: notOnOrAfterAfter,
+			AudienceRestrictions: []saml.AudienceRestriction{
+				saml.AudienceRestriction{
+					Audience: saml.Audience{Value: req.ServiceProviderMetadata.EntityID},
+				},
+			},
+		},
+		AuthnStatements: []saml.AuthnStatement{
+			saml.AuthnStatement{
+				AuthnInstant: session.CreateTime,
+				SessionIndex: session.Index,
+				SubjectLocality: &saml.SubjectLocality{
+					Address: req.HTTPRequest.RemoteAddr,
+				},
+				AuthnContext: saml.AuthnContext{
+					AuthnContextClassRef: &saml.AuthnContextClassRef{
+						Value: "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport",
+					},
+				},
+			},
+		},
+		AttributeStatements: []saml.AttributeStatement{
+			saml.AttributeStatement{
+				Attributes: attributes,
+			},
+		},
+	}
+
+	return nil
+}
+
 func main() {
 	logr := logger.DefaultLogger
 	idpURL := os.Getenv("IDP_URL")
@@ -89,31 +236,46 @@ func main() {
 		logr.Fatalf("%s", err)
 	}
 
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("hunter2"), bcrypt.DefaultCost)
-	err = idpServer.Store.Put("/users/alice", samlidp.User{Name: "alice",
+	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("passw0rd"), bcrypt.DefaultCost)
+	err = idpServer.Store.Put("/users/taylor", samlidp.User{Name: "taylor",
 		HashedPassword: hashedPassword,
-		Groups:         []string{"Administrators", "Users"},
-		Email:          "alice@example.com",
-		CommonName:     "Alice Smith",
-		Surname:        "Smith",
-		GivenName:      "Alice",
+		Groups:         []string{adminGroupName, "Engineering", "Users"},
+		Email:          "taylor@example.com",
+		CommonName:     "Taylor Thompson",
+		Surname:        "Thompson",
+		GivenName:      "Taylor",
 	})
 	if err != nil {
 		logr.Fatalf("%s", err)
 	}
 
-	err = idpServer.Store.Put("/users/bob", samlidp.User{
-		Name:           "bob",
+	err = idpServer.Store.Put("/users/sammy", samlidp.User{
+		Name:           "sammy",
 		HashedPassword: hashedPassword,
-		Groups:         []string{"Users"},
-		Email:          "bob@example.com",
-		CommonName:     "Bob Smith",
+		Groups:         []string{"Users", "Finance"},
+		Email:          "sammy@example.com",
+		CommonName:     "Sammy Smith",
 		Surname:        "Smith",
-		GivenName:      "Bob",
+		GivenName:      "Sammy",
 	})
 	if err != nil {
 		logr.Fatalf("%s", err)
 	}
+
+	err = idpServer.Store.Put("/users/robin", samlidp.User{
+		Name:           "robin",
+		HashedPassword: hashedPassword,
+		Groups:         []string{"Users", "Engineering"},
+		Email:          "robin@example.com",
+		CommonName:     "Robin Rivas",
+		Surname:        "Rivas",
+		GivenName:      "Robin",
+	})
+	if err != nil {
+		logr.Fatalf("%s", err)
+	}
+
+	idpServer.IDP.AssertionMaker = AssertionMaker{}
 
 	goji.Handle("/*", idpServer)
 	goji.Serve()

@@ -1,4 +1,7 @@
 # SAML
+[![](https://godoc.org/github.com/crewjam/saml?status.svg)](http://godoc.org/github.com/crewjam/saml)
+
+[![Build Status](https://travis-ci.org/crewjam/saml.svg?branch=master)](https://travis-ci.org/crewjam/saml)
 
 Package saml contains a partial implementation of the SAML standard in golang.
 SAML is a standard for identity federation, i.e. either allowing a third party to authenticate your users or allowing third parties to rely on us to authenticate their users.
@@ -32,7 +35,7 @@ In various places where keys and certificates were modeled as `string`
 
 ## Getting Started as a Service Provider
 
-Let us assume we have a simple web appliation to protect. We'll modify this application so it uses SAML to authenticate users.
+Let us assume we have a simple web application to protect. We'll modify this application so it uses SAML to authenticate users.
 ```golang
 package main
 
@@ -105,12 +108,12 @@ func main() {
 }
 ```
 
-Next we'll have to register our service provider with the identiy provider to establish trust from the service provider to the IDP. For [testshib.org](https://www.testshib.org/), you can do something like:
+Next we'll have to register our service provider with the identity provider to establish trust from the service provider to the IDP. For [testshib.org](https://www.testshib.org/), you can do something like:
 
     mdpath=saml-test-$USER-$HOST.xml
     curl localhost:8000/saml/metadata > $mdpath
 
-Naviate to https://www.testshib.org/register.html and upload the file you fetched.
+Navigate to https://www.testshib.org/register.html and upload the file you fetched.
 
 Now you should be able to authenticate. The flow should look like this:
 
@@ -140,7 +143,7 @@ The package supports signed and encrypted SAML assertions. It does not support s
 
 ## RelayState
 
-The *RelayState* parameter allows you to pass user state information across the authentication flow. The most common use for this is to allow a user to request a deep link into your site, be redirected through the SAML login flow, and upon successful completion, be directed to the originaly requested link, rather than the root.
+The *RelayState* parameter allows you to pass user state information across the authentication flow. The most common use for this is to allow a user to request a deep link into your site, be redirected through the SAML login flow, and upon successful completion, be directed to the originally requested link, rather than the root.
 
 Unfortunately, *RelayState* is less useful than it could be. Firstly, it is **not** authenticated, so anything you supply must be signed to avoid XSS or CSRF. Secondly, it is limited to 80 bytes in length, which precludes signing. (See section 3.6.3.1 of SAMLProfiles.)
 
