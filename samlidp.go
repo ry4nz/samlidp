@@ -99,6 +99,9 @@ const (
 	attrnameformat = "urn:oasis:names:tc:SAML:2.0:attrname-format:unspecified"
 
 	adminGroupName = "Administrator"
+
+	engineering = "Engineering"
+	finance     = "Finance"
 )
 
 type AssertionMaker struct {
@@ -239,7 +242,7 @@ func main() {
 	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("passw0rd"), bcrypt.DefaultCost)
 	err = idpServer.Store.Put("/users/taylor", samlidp.User{Name: "taylor",
 		HashedPassword: hashedPassword,
-		Groups:         []string{adminGroupName, "Engineering", "Users"},
+		Groups:         []string{adminGroupName, engineering, "Users"},
 		Email:          "taylor@example.com",
 		CommonName:     "Taylor Thompson",
 		Surname:        "Thompson",
@@ -252,7 +255,7 @@ func main() {
 	err = idpServer.Store.Put("/users/sammy", samlidp.User{
 		Name:           "sammy",
 		HashedPassword: hashedPassword,
-		Groups:         []string{"Users", "Finance"},
+		Groups:         []string{"Users", finance},
 		Email:          "sammy@example.com",
 		CommonName:     "Sammy Smith",
 		Surname:        "Smith",
@@ -265,7 +268,7 @@ func main() {
 	err = idpServer.Store.Put("/users/robin", samlidp.User{
 		Name:           "robin",
 		HashedPassword: hashedPassword,
-		Groups:         []string{"Users", "Engineering"},
+		Groups:         []string{"Users", engineering, finance},
 		Email:          "robin@example.com",
 		CommonName:     "Robin Rivas",
 		Surname:        "Rivas",
