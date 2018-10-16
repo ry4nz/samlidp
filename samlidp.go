@@ -265,8 +265,8 @@ func main() {
 		logr.Fatalf("%s", err)
 	}
 
-	err = idpServer.Store.Put("/users/robin", samlidp.User{
-		Name:           "robin",
+	err = idpServer.Store.Put("/users/Robin", samlidp.User{
+		Name:           "Robin",
 		HashedPassword: hashedPassword,
 		Groups:         []string{"Users", engineering, finance},
 		Email:          "robin@example.com",
