@@ -96,6 +96,8 @@ const (
 	// The attribute name is configured at the identity provider.
 	adminAttributeName = "is-admin"
 
+	dnAttributeName = "dn"
+
 	attrnameformat = "urn:oasis:names:tc:SAML:2.0:attrname-format:unspecified"
 
 	adminGroupName = "Administrator"
@@ -117,6 +119,16 @@ func (AssertionMaker) MakeAssertion(req *saml.IdpAuthnRequest, session *saml.Ses
 		Values: []saml.AttributeValue{{
 			Type:  "xs:string",
 			Value: session.UserCommonName,
+		}},
+	})
+
+	attributes = append(attributes, saml.Attribute{
+		FriendlyName: dnAttributeName,
+		Name:         dnAttributeName,
+		NameFormat:   attrnameformat,
+		Values: []saml.AttributeValue{{
+			Type:  "xs:string",
+			Value: fmt.Sprintf("cn=%s,ou=Users,dc=my-domain,dc=com", session.UserName),
 		}},
 	})
 
