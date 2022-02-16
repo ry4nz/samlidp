@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/crewjam/saml"
 	"github.com/crewjam/saml/logger"
@@ -104,6 +105,9 @@ const (
 
 	engineering = "Engineering"
 	finance     = "Finance"
+
+	// Default password for all users
+	password = "passw0rd"
 )
 
 type AssertionMaker struct {
@@ -122,15 +126,18 @@ func (AssertionMaker) MakeAssertion(req *saml.IdpAuthnRequest, session *saml.Ses
 		}},
 	})
 
-	attributes = append(attributes, saml.Attribute{
-		FriendlyName: dnAttributeName,
-		Name:         dnAttributeName,
-		NameFormat:   attrnameformat,
-		Values: []saml.AttributeValue{{
-			Type:  "xs:string",
-			Value: fmt.Sprintf("cn=%s,ou=Users,dc=my-domain,dc=com", session.UserName),
-		}},
-	})
+	// It's a bit hacky, but we need users with an empty DN attribute for testing
+	if !strings.Contains(session.UserEmail, "noldap") {
+		attributes = append(attributes, saml.Attribute{
+			FriendlyName: dnAttributeName,
+			Name:         dnAttributeName,
+			NameFormat:   attrnameformat,
+			Values: []saml.AttributeValue{{
+				Type:  "xs:string",
+				Value: fmt.Sprintf("cn=%s,ou=Users,dc=my-domain,dc=com", session.UserName),
+			}},
+		})
+	}
 
 	groupValues := []saml.AttributeValue{}
 
@@ -231,6 +238,22 @@ func (AssertionMaker) MakeAssertion(req *saml.IdpAuthnRequest, session *saml.Ses
 	return nil
 }
 
+func createUser(idpServer *samlidp.Server, username, password, email, firstName, lastName string, groups []string) {
+	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	err := idpServer.Store.Put("/users/"+username, samlidp.User{
+		Name:           username,
+		HashedPassword: hashedPassword,
+		Groups:         groups,
+		Email:          email,
+		CommonName:     firstName + " " + lastName,
+		Surname:        lastName,
+		GivenName:      firstName,
+	})
+	if err != nil {
+		logger.DefaultLogger.Fatalf("unable to add user: %s", err)
+	}
+}
+
 func main() {
 	logr := logger.DefaultLogger
 	idpURL := os.Getenv("IDP_URL")
@@ -251,44 +274,33 @@ func main() {
 		logr.Fatalf("%s", err)
 	}
 
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("passw0rd"), bcrypt.DefaultCost)
-	err = idpServer.Store.Put("/users/taylor", samlidp.User{Name: "taylor",
-		HashedPassword: hashedPassword,
-		Groups:         []string{adminGroupName, engineering, "Users"},
-		Email:          "taylor@example.com",
-		CommonName:     "Taylor Thompson",
-		Surname:        "Thompson",
-		GivenName:      "Taylor",
-	})
-	if err != nil {
-		logr.Fatalf("%s", err)
-	}
+	createUser(idpServer,
+		"taylor", password,
+		"taylor@example.com",
+		"Taylor", "Thompson",
+		[]string{adminGroupName, engineering, "Users"},
+	)
 
-	err = idpServer.Store.Put("/users/sammy", samlidp.User{
-		Name:           "sammy",
-		HashedPassword: hashedPassword,
-		Groups:         []string{"Users", finance},
-		Email:          "sammy@example.com",
-		CommonName:     "Sammy Smith",
-		Surname:        "Smith",
-		GivenName:      "Sammy",
-	})
-	if err != nil {
-		logr.Fatalf("%s", err)
-	}
+	createUser(idpServer,
+		"sammy", password,
+		"sammy@example.com",
+		"Sammy", "Smith",
+		[]string{"Users", finance},
+	)
 
-	err = idpServer.Store.Put("/users/Robin", samlidp.User{
-		Name:           "Robin",
-		HashedPassword: hashedPassword,
-		Groups:         []string{"Users", engineering, finance},
-		Email:          "robin@example.com",
-		CommonName:     "Robin Rivas",
-		Surname:        "Rivas",
-		GivenName:      "Robin",
-	})
-	if err != nil {
-		logr.Fatalf("%s", err)
-	}
+	createUser(idpServer,
+		"Robin", password,
+		"robin@example.com",
+		"Robin", "Rivas",
+		[]string{"Users", engineering, finance},
+	)
+
+	createUser(idpServer,
+		"bob", password,
+		"bob@noldap.com",
+		"Bob", "Rivas",
+		[]string{"Users", adminGroupName, finance},
+	)
 
 	idpServer.IDP.AssertionMaker = AssertionMaker{}
 
